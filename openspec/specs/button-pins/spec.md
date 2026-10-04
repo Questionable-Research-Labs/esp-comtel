@@ -1,5 +1,8 @@
-## ADDED Requirements
+# button-pins Specification
 
+## Purpose
+Define the shared, declaration-only header of ESP32 GPIOs that plugins may use for button input, disjoint from the display driver's pins.
+## Requirements
 ### Requirement: Shared declaration-only button pin header
 
 The driver core SHALL provide `src/driver/button_pins.h` as the single source of truth for which GPIOs plugins may use for button input. The header SHALL only declare named constants: it SHALL NOT configure pins, read pins, or enable pull-ups. Each plugin SHALL own its own `pinMode`, reading and debouncing.
@@ -44,3 +47,4 @@ Buttons SHALL be wired between the pin and GND, so a press reads LOW.
 #### Scenario: Preference order
 - **WHEN** a plugin needs N buttons
 - **THEN** it uses the primary pair (32, 33) first, then the strapping pins (2, 15), then the input-only pins
+

@@ -1,5 +1,8 @@
-## ADDED Requirements
+# entanglement Specification
 
+## Purpose
+Define the `entanglement` plugin: a two-player, four-button game of coloured cubes, electrons, entanglement and stealing, with start, play and win screens.
+## Requirements
 ### Requirement: Entanglement plugin and game modes
 
 The system SHALL provide an `entanglement` plugin at `src/plugins/entanglement.cpp` with the descriptor `// @plugin: Entanglement`: a two-player game on the 96×16 sign. The plugin SHALL have three modes: START, PLAY and WIN. It SHALL boot into START, and the only way into PLAY SHALL be from START, through one game-building path, so a restarted game is identical to a cold boot. START and WIN SHALL each push their image once (by copying a 96×16 byte image into the canvas buffer and calling `show()`) and then do no per-frame drawing; `service()` alone keeps the image lit. The images SHALL live in the plugin-private data headers `start_screen_image.h` and `win_screen_image.h`.
@@ -139,3 +142,4 @@ Off-screen orbit cells SHALL be skipped, but those electrons still count as held
 #### Scenario: Link never hides objects
 - **WHEN** the link crosses an electron or a cube
 - **THEN** that object is drawn on top in its own color
+

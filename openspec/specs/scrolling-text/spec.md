@@ -1,5 +1,8 @@
-## ADDED Requirements
+# scrolling-text Specification
 
+## Purpose
+Define the `scrolling_text` plugin: a four-slot scrolling-message playlist with size/bold/italic styling, a serial console, two-button control and NVS persistence.
+## Requirements
 ### Requirement: Scrolling message plugin
 
 The system SHALL provide a `scrolling_text` plugin at `src/plugins/scrolling_text.cpp` that scrolls a text message right-to-left across the sign in `COMTEL_WHITE` on `COMTEL_OFF`, advancing one pixel per step interval. A three-space gap SHALL be appended after the message before it repeats. Once the message, including bold and italic extra width, has fully left the left edge, it SHALL restart from the right edge. The renderer SHALL be file-local to the plugin.
@@ -121,3 +124,4 @@ The `!shift` value and the driver clock calibration SHALL NOT be saved to or res
 #### Scenario: Shift resets on reboot
 - **WHEN** the user sends `!shift 3` and reboots
 - **THEN** `rowShiftLo` is 0
+

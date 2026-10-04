@@ -1,5 +1,8 @@
-## ADDED Requirements
+# tetris Specification
 
+## Purpose
+Define the `tetris` plugin: full-screen upright 16x96 Tetris with three-button controls, serial score and a game-over flash.
+## Requirements
 ### Requirement: Tetris plugin entry point
 
 The system SHALL provide a `tetris` plugin at `src/plugins/tetris.cpp` with the descriptor `// @plugin: Tetris`, following the plugin-system format. Its loop SHALL call `panel.service()` on every pass, and SHALL call `panel.show()` only when the frame has changed (or on a game-over flash toggle).
@@ -94,3 +97,4 @@ During the topped-out hold, the plugin SHALL invert every playfield pixel about 
 #### Scenario: Flash during hold
 - **WHEN** the game is topped out
 - **THEN** the playfield alternates between normal and inverted about every 150 ms until the restart
+

@@ -1,5 +1,8 @@
-## ADDED Requirements
+# comtel-panel Specification
 
+## Purpose
+Define the `ComtelPanel` driver contract shared by every plugin: the 96x16 RGB on/off canvas and palette, the `show()`/`service()` lifecycle, frame write and equal-duty scanning, calibration, and the reserved GPIO map.
+## Requirements
 ### Requirement: Driver construction and lifecycle
 
 The shared driver SHALL be the `ComtelPanel` class in `src/driver/comtel_panel.h/.cpp`. A plugin SHALL construct one `ComtelPanel`, call `begin()` once during setup, call `service()` continuously from its loop, and call `show()` whenever it wants the canvas pushed to the glass. `begin()` SHALL configure every sign-signal GPIO as an output and leave the bus idle (clock high, data/U12/write-address low, scan address 0).
@@ -117,3 +120,4 @@ The driver SHALL own these ESP32 GPIOs, and no plugin SHALL use them: clock 23; 
 #### Scenario: Pin conflict avoided
 - **WHEN** a plugin needs a GPIO for input
 - **THEN** it chooses from the pins declared in `button_pins.h`, none of which are in the driver map
+
