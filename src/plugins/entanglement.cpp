@@ -27,14 +27,14 @@
 //  the same rate keep meeting on a shared color instead of chasing each other
 //  around the cycle forever out of phase.
 //
-//  ELECTRONS: nine single-pixel electrons exist as a fixed set (no respawn),
+//  ELECTRONS: fifteen single-pixel electrons exist as a fixed set (no respawn),
 //  each a random one of the three colors, fixed for life. Each is in exactly one
 //  of three states: FLOATING (stationary in space), ORBITING one player as a
 //  slowly-rotating ring around that player's cube, or IN FLIGHT as a steal
-//  crawling along the entanglement link. At game start all 9 float. A cube
+//  crawling along the entanglement link. At game start all 15 float. A cube
 //  AUTOMATICALLY collects any floating electron it runs over whose color matches
 //  the cube's current color (mismatches are passed over). There is no hold cap --
-//  a player may hold all nine, and that is how the game is won.
+//  the first player to hold eight at once (a strict majority) wins.
 //
 //  A cube-cube collision scatters every electron only when both cubes are the
 //  same color; a different-color bump preserves both orbits.
@@ -162,13 +162,14 @@ static inline int centerY(const Cube& c) { return cellY(c) + CUBE / 2; }
 static inline bool entangled() { return cubeColor(red) == cubeColor(blue); }
 
 // ---- electrons -------------------------------------------------------------
-// Fixed set of 9 single-pixel electrons, each with its own fixed color.
+// Fixed set of N_ELECTRONS (15) single-pixel electrons, each with its own fixed
+// color.
 //
-// NINE, and there is no hold cap: holding all nine at once is the win condition,
-// and nine being odd is what makes that a place only one player can ever stand.
-// A cap here would either sit at 9 -- unreachable, since the win test fires on
-// the same frame -- or below it, which would make the game unwinnable. So the
-// rule is simply "you may hold them all, and holding them all wins".
+// There is no hold cap, and the win condition is holding WIN_ELECTRONS (8) at
+// once -- a strict majority of an odd total, which is what makes it a place only
+// one player can ever stand. A cap below 8 would make the game unwinnable, and
+// any cap at or above it is moot, since the win test fires on the same frame. So
+// the rule is simply "hold as many as you like; holding 8 wins".
 //
 // `owner` is the state discriminator:
 //   -1 = FLOATING at (x, y);  0 = orbiting red;  1 = orbiting blue;
@@ -581,8 +582,8 @@ static int stealTargetIdx(uint8_t victim) {
 // velocity or color.
 //
 // No hold-cap check is needed here, and none is needed in autoCollect either,
-// because there is no cap to check: a player may hold all nine. A capture that
-// brings the thief to nine does not need refusing -- it wins them the game, and
+// because there is no cap to check. A capture that brings the thief to
+// WIN_ELECTRONS does not need refusing -- it wins them the game, and
 // the win test at the end of the frame picks it up.
 static void tryStealFlight(uint8_t player) {
   if (!entangled()) return;
@@ -655,7 +656,7 @@ static void updateSteals(float dt) {
 // Three modes, and only four transitions between them:
 //   START -> PLAY   a button press begins a game
 //   PLAY  -> START  the idle timeout expires and abandons it
-//   PLAY  -> WIN    a player's orbit holds all nine electrons
+//   PLAY  -> WIN    a player's orbit holds WIN_ELECTRONS (8) electrons
 //   WIN   -> START  a press after the lockout, or the unattended timeout
 // There is deliberately NO WIN -> PLAY edge: a new game is always begun from
 // START, so "a fresh game" has exactly one meaning and one code path.
@@ -880,7 +881,7 @@ static void render() {
 // it; the equivalent nested drawPixel loop is the fallback.
 //
 // No teardown of the game state: nothing reads it while in START, and the next
-// startGame() overwrites every field of both cubes and all nine electrons
+// startGame() overwrites every field of both cubes and all fifteen electrons
 // before anything is drawn again. Clearing it here would only create a second,
 // weaker definition of "fresh" to drift out of step with that one.
 static void enterStart() {
@@ -924,7 +925,7 @@ static void startGame() {
   randomizeMotion(red);
   randomizeMotion(blue);
 
-  // Electrons: all 9 float at random empty cells (avoiding both cube start boxes
+  // Electrons: all 15 float at random empty cells (avoiding both cube start boxes
   // and already-placed floaters), each in a random color. None pre-orbit.
   int placed = 0;
   for (int i = 0; i < N_ELECTRONS; i++) {
@@ -1034,15 +1035,15 @@ void loop() {
   //    steal capture can produce a win today (release and forfeit only ever
   //    reduce a holding), but a flag set from inside those two would have to be
   //    re-audited every time an electron learns a new way to change hands. A
-  //    9-iteration count at 40 Hz costs nothing and cannot fall out of date.
+  //    15-iteration count at 40 Hz costs nothing and cannot fall out of date.
   //
   //  * THE WINNING FRAME IS NOT RENDERED. Returning before render() means the
   //    glass goes from the previous game frame straight to the win image. Drawing
-  //    the all-nine orbit for one 25 ms frame first would read as a flicker, not
+  //    the winning orbit for one 25 ms frame first would read as a flicker, not
   //    a victory lap; if a lap is ever wanted it should be a deliberate feature.
   //
   //  * A DRAW IS IMPOSSIBLE, so the order of the two tests is arbitrary and safe.
-  //    Nine electrons cannot all be player 0's and all be player 1's at once.
+  //    With 15 electrons, both players cannot hold 8 at once.
   //
   // The idle timeout above wins a same-frame tie with this test, deliberately: it
   // returns before the physics block, so a game already abandoned cannot win on

@@ -58,22 +58,33 @@ text → it scrolls on the sign.** Commands:
 |---|---|
 | `!slot <0..3>` | switch playlist slot (typed text edits the current slot) |
 | `!list` | show the playlist |
-| `!speed <ms>` | scroll step interval (lower = faster) |
+| `!speed <ms>` | scroll step interval, 5–2000 (lower = faster; default 45) |
+| `!size <1\|2>` | text size: 1 = 6×8 centred, 2 = 12×16 full height (default) |
+| `!bold [0\|1]` / `!italic [0\|1]` | text style (no argument = toggle) |
 | `!stop` / `!go` | pause / resume |
 | `!card` | module-alignment test card |
-| `!shift <0..7>` | lower-half row-decoder offset (calibration; default 1) |
+| `!stair` / `!row <0..15>` | row-mapping diagnostics |
+| `!shift <0..7>` | lower-half row-decoder offset (calibration; default 0, not saved) |
 | `!status`, `!help` | what they say |
 
 Buttons: **BTN1** short = next message, long = pause/resume. **BTN2** short =
 cycle speed, long = test card.
+
+The playlist, current slot, size, bold, italic and speed are saved to flash
+(NVS) and survive a power cycle.
 
 ## Code layout
 
 | Path | Role |
 |---|---|
 | `src/driver/comtel_panel.h/.cpp` | `ComtelPanel` — the hardware driver, compiled into **every** plugin: draw on its Adafruit-GFX canvas, call `show()`; `service()` keeps the display multiplexed |
+| `src/driver/button_pins.h` | declaration-only list of the GPIOs plugins may use for buttons (disjoint from the driver's pins) |
 | `src/plugins/scrolling_text.cpp` | plugin: the full scrolling-message app (playlist, styles, buttons, NVS), with its renderer folded in |
 | `src/plugins/bouncer.cpp` | plugin: a bouncing 2×2 square — the minimal reference plugin |
+| `src/plugins/tetris.cpp` | plugin: upright 16×96 Tetris, three buttons, score on serial |
+| `src/plugins/entanglement.cpp` | plugin: two-player, four-button colour/electron game (plus its private `start_screen_image.h` / `win_screen_image.h`) |
+| `src/plugins/button_test.cpp` | diagnostic plugin: one on-glass square per button, edges logged to serial |
+| `src/plugins/row_uniformity.cpp` | diagnostic plugin: row-brightness test cards and live A/B of the burst calibration |
 | `src/comtel_diag.cpp` | frozen reverse-engineering diagnostic firmware (env `diag`) |
 | `tools/flash.py` | the flasher: discover plugins, sync the env block, build + upload |
 | `docs/` | protocol spec, wiring, history |
@@ -93,7 +104,9 @@ Authoring convention:
 - **One `.cpp` per plugin.** Render helpers live in that file (file-local
   classes/functions) or a plugin-private header it `#include`s — never as a
   sibling `.cpp` (discovery would treat it as another plugin).
-- **Depend only on the driver:** `#include "../driver/comtel_panel.h"`. Copying
+- **Depend only on the driver:** `#include "../driver/comtel_panel.h"`, plus
+  `"../driver/button_pins.h"` for button pin names (it only names pins — the
+  plugin still does its own `pinMode`, reads and debounce). Copying
   an existing plugin as a starting point is fine — independence is the point.
 - **Optional label:** a first-line `// @plugin: <text>` comment gives the
   flasher a human-readable description next to the id.
@@ -104,6 +117,9 @@ plugin into a marked, machine-owned block in `platformio.ini` (run
 `python tools/flash.py --sync` after adding or removing one, or just let any
 flasher run auto-sync it).
 
-The panel supports 6-bit brightness per colour channel (262k colours); the
-current plugins render monochrome white. Colour canvas support is the obvious
-next upgrade — see PROTOCOL.md for the encoding.
+**Colour:** `panel.canvas` is a 96×16 `GFXcanvas8` whose low three bits are an
+RGB on/off mask. Draw with the named palette in `comtel_panel.h` —
+`COMTEL_OFF`, `RED`, `GREEN`, `YELLOW`, `BLUE`, `MAGENTA`, `CYAN`, `WHITE` —
+not bare numbers (a bare `1` is red, not white). Each channel is either off or
+full brightness; the hardware's 6-bit per-channel brightness (see PROTOCOL.md)
+is not exposed yet.
