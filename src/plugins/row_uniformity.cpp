@@ -26,13 +26,16 @@
 //  monitor. Single keys over serial do what the buttons do, for driving the
 //  test card from a host: 'c' next card, 'b' next calibration, '0'-'3' pick a
 //  calibration directly, '?' reprint the state.
-//  Depends only on the ComtelPanel driver.
+//  The calibration it sets is undone by the host when switching away.
+//  Depends only on the ComtelPanel driver and the host interface.
 // ============================================================================
 #include <Arduino.h>
-#include "../driver/comtel_panel.h"
+#include "../host/plugin.h"
 #include "../driver/button_pins.h"
 
-static ComtelPanel panel;
+namespace {
+
+ComtelPanel *hostPanel = nullptr;   // the host's panel, set by start()
 
 // canvas y for a physical row counted from 0 at the bottom
 static inline int rowY(int physicalRow) { return 15 - physicalRow; }
@@ -60,7 +63,7 @@ static uint32_t showCount = 0;
 static uint32_t lastReport = 0;
 
 static void draw() {
-  GFXcanvas8 &c = panel.canvas;
+  GFXcanvas8 &c = hostPanel->canvas;
   c.fillScreen(COMTEL_OFF);
   switch (card) {
     case 0:
@@ -88,6 +91,7 @@ static void draw() {
 }
 
 static void applyCfg() {
+  ComtelPanel &panel = *hostPanel;
   panel.scanDuringBurst = CFG[cfg].scan;
   panel.burstClocks     = CFG[cfg].clocks;
   showUsSum = showCount = 0;                  // restart the timing average
@@ -104,9 +108,12 @@ static bool pressed(int pin, uint32_t &lockUntil) {
   return true;
 }
 
-void setup() {
-  Serial.begin(115200);
-  panel.begin();
+static uint32_t lock1 = 0, lock2 = 0;    // button lockouts
+
+void start(ComtelPanel &panel) {
+  hostPanel = &panel;
+  card = cfg = 0;
+  lock1 = lock2 = 0;
   pinMode(BTN_PIN_1, INPUT_PULLUP);
   pinMode(BTN_PIN_2, INPUT_PULLUP);
   draw();
@@ -125,10 +132,7 @@ static void handleSerial() {
   }
 }
 
-void loop() {
-  static uint32_t lock1 = 0, lock2 = 0;
-  panel.service();
-
+void tick(ComtelPanel &panel) {
   handleSerial();
   if (pressed(BTN_PIN_1, lock1)) { card = (card + 1) % N_CARDS; draw(); applyCfg(); }
   if (pressed(BTN_PIN_2, lock2)) { cfg  = (cfg  + 1) % N_CFGS;  applyCfg(); }
@@ -151,3 +155,8 @@ void loop() {
     }
   }
 }
+
+}  // namespace
+
+COMTEL_PLUGIN(row_uniformity, "Row-brightness uniformity test card",
+              start, tick, nullptr);

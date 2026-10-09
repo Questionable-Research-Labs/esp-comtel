@@ -2,7 +2,7 @@
 // ============================================================================
 //  entanglement -- two-player game on the Comtel 96x16 sign.
 //
-//  START SCREEN: the sign boots to a static image (the explicit 16x96 array in
+//  START SCREEN: every start shows a static image (the explicit 16x96 array in
 //  start_screen_image.h -- data only, edit it to change the artwork) and does
 //  not play until someone asks it to. Any of the four buttons starts a fresh
 //  game; that press is consumed by the start and does not also recolor or steal.
@@ -83,12 +83,16 @@
 #include <esp_random.h>
 #include <math.h>
 #include <string.h>
-#include "../driver/comtel_panel.h"
+#include "../host/plugin.h"
 #include "../driver/button_pins.h"
 #include "start_screen_image.h"
 #include "win_screen_image.h"
 
-static ComtelPanel panel;
+namespace {
+
+// The host's panel, as handed to start(). The drawing helpers below reach it
+// through this rather than threading it through every game function.
+ComtelPanel* hostPanel = nullptr;
 
 // ---- geometry & motion tuning ---------------------------------------------
 static const int   W    = ComtelPanel::W;   // 96
@@ -764,7 +768,7 @@ static void pollButtons(uint32_t nowMs) {
       // here, which is the only thing the idle timeout is measuring. Left
       // unconditional rather than moved below the gates -- in START and WIN the
       // write is simply inert, because the idle timer is only ever READ in the
-      // PLAY arm of loop() and startGame() re-seeds it before PLAY resumes.
+      // PLAY arm of tick() and startGame() re-seeds it before PLAY resumes.
       lastInputMs = nowMs;
 
       // The WIN gate, above the START gate for the same reason that one sits above
@@ -809,7 +813,7 @@ static void pollButtons(uint32_t nowMs) {
   }
 }
 
-// ---- setup / loop ----------------------------------------------------------
+// ---- start / tick ----------------------------------------------------------
 static const uint32_t FRAME_MS = 25;  // physics + redraw cadence
 static uint32_t lastFrameMs = 0;
 
@@ -825,6 +829,7 @@ static void drawOrbitPixel(GFXcanvas8& c, const Cube& cube, int i, int n,
 }
 
 static void render() {
+  ComtelPanel& panel = *hostPanel;
   GFXcanvas8& c = panel.canvas;
   c.fillScreen(COMTEL_OFF);
 
@@ -885,6 +890,7 @@ static void render() {
 // before anything is drawn again. Clearing it here would only create a second,
 // weaker definition of "fresh" to drift out of step with that one.
 static void enterStart() {
+  ComtelPanel& panel = *hostPanel;
   memcpy(panel.canvas.getBuffer(), START_SCREEN, sizeof(START_SCREEN));
   panel.show();           // once -- service() keeps the latched frame lit
   mode = MODE_START;
@@ -903,6 +909,7 @@ static void enterStart() {
 // the glass. WIN is distinguishable from START only by behaviour -- it ignores
 // buttons for WIN_LOCKOUT_MS, where START would have started a game at once.
 static void enterWin() {
+  ComtelPanel& panel = *hostPanel;
   memcpy(panel.canvas.getBuffer(), WIN_SCREEN, sizeof(WIN_SCREEN));
   panel.show();           // once -- service() keeps the latched frame lit
   mode = MODE_WIN;
@@ -961,21 +968,34 @@ static void startGame() {
   render();
 }
 
-void setup() {
-  Serial.begin(115200);
-  panel.begin();
+// Every start behaves like the former cold boot: START screen, no game, input
+// disarmed until all four buttons have been seen released. The game state is
+// wiped here too -- startGame() would overwrite it before PLAY anyway, but a
+// switch can land mid-game and nothing of that game may survive it.
+void start(ComtelPanel& panel) {
+  hostPanel = &panel;
   randomSeed(esp_random());
+  red = Cube{};
+  blue = Cube{};
+  for (int i = 0; i < N_ELECTRONS; i++) {
+    electrons[i] = Electron{};
+    electrons[i].owner = -1;
+  }
+  stealIdx[0]  = stealIdx[1]  = -1;
+  stealDist[0] = stealDist[1] = 0.0f;
+  orbitPhase   = 0.0f;
+  lastFrameMs  = 0;
+  lastInputMs  = 0;
+  winEnteredMs = 0;
   configureButtons(millis());
   enterStart();   // no game exists until a button asks for one
 }
 
-void loop() {
-  panel.service();  // keep the display multiplexed every pass
-
+void tick(ComtelPanel&) {
   pollButtons(millis());  // poll every pass so presses aren't missed
 
   // In START there is nothing to advance and nothing to redraw -- the image is
-  // already latched on the glass and service() above is all it needs.
+  // already latched on the glass and the host's service() is all it needs.
   if (mode == MODE_START) return;
 
   // Read the clock AFTER polling, not before. A press may have just called
@@ -1057,3 +1077,7 @@ void loop() {
 
   render();
 }
+
+}  // namespace
+
+COMTEL_PLUGIN(entanglement, "Entanglement", start, tick, nullptr);

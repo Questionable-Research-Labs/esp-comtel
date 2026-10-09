@@ -9,13 +9,13 @@
 //  Pins come from the button_pins.h source of truth. 32/33/2/15 use the ESP32
 //  internal pull-up (button wired pin->GND); 34/35 are input-only and rely on
 //  external 10 kOhm pull-ups to 3.3 V (see docs/wiring.md Step 5).
-//  Depends only on the ComtelPanel driver.
+//  Depends only on the ComtelPanel driver and the host interface.
 // ============================================================================
 #include <Arduino.h>
-#include "../driver/comtel_panel.h"
+#include "../host/plugin.h"
 #include "../driver/button_pins.h"
 
-static ComtelPanel panel;
+namespace {
 
 // One row drives both the pin list and the on-glass layout, so the button->
 // square mapping lives in a single place. Squares are laid out left->right in
@@ -42,9 +42,8 @@ static const int N = sizeof(buttons) / sizeof(buttons[0]);
 // Last-frame pressed state, for detecting press/release edges to log.
 static bool prevPressed[6] = {false, false, false, false, false, false};
 
-void setup() {
-  Serial.begin(115200);
-  panel.begin();
+void start(ComtelPanel &) {
+  for (int i = 0; i < N; i++) prevPressed[i] = false;
 
   // Internal-pull-up-capable pins use INPUT_PULLUP; input-only pins (34/35)
   // have no internal pull-up, so they are plain INPUT and depend on external
@@ -54,9 +53,7 @@ void setup() {
   }
 }
 
-void loop() {
-  panel.service();
-
+void tick(ComtelPanel &panel) {
   GFXcanvas8 &c = panel.canvas;
   c.fillScreen(COMTEL_OFF);
 
@@ -80,3 +77,8 @@ void loop() {
 
   panel.show();
 }
+
+}  // namespace
+
+COMTEL_PLUGIN(button_test, "Button tester -- 6 buttons, one square each",
+              start, tick, nullptr);

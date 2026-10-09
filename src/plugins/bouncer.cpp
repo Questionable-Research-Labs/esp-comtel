@@ -1,22 +1,21 @@
 // @plugin: Bouncing 2x2 square (minimal reference plugin)
 // ============================================================================
 //  bouncer -- a 2x2 square tracing 45-deg diagonals, reflecting off all walls.
-//  The smallest useful plugin: construct the panel, service() it, step the
-//  square each loop. Depends only on the ComtelPanel driver; the animation
-//  (folded in from the old bouncer.*) is file-local here.
+//  The smallest useful plugin: re-randomise in start(), step the square each
+//  tick(). Depends only on the ComtelPanel driver and the host interface; the
+//  animation (folded in from the old bouncer.*) is file-local here.
 // ============================================================================
 #include <Arduino.h>
-#include "../driver/comtel_panel.h"
+#include "../host/plugin.h"
 
-static ComtelPanel panel;
+namespace {
 
-static int  x = 0, y = 0, dx = 1, dy = 1;
-static const uint32_t stepMs = 40;
-static uint32_t last = 0;
+int  x = 0, y = 0, dx = 1, dy = 1;
+const uint32_t stepMs = 40;
+uint32_t last = 0;
 
-void setup() {
-  panel.begin();
-  // random origin + 45-deg direction so each boot looks live. random(a,b)
+void start(ComtelPanel &) {
+  // random origin + 45-deg direction so each start looks live. random(a,b)
   // yields a..b-1, so (0, W-1) keeps the 2x2 square fully on-screen.
   x = random(0, ComtelPanel::W - 1);
   y = random(0, ComtelPanel::H - 1);
@@ -25,8 +24,7 @@ void setup() {
   last = millis();
 }
 
-void loop() {
-  panel.service();
+void tick(ComtelPanel &panel) {
   if (millis() - last < stepMs) return;
   last = millis();
 
@@ -43,3 +41,8 @@ void loop() {
   c.fillRect(x, y, 2, 2, COMTEL_WHITE);
   panel.show();
 }
+
+}  // namespace
+
+COMTEL_PLUGIN(bouncer, "Bouncing 2x2 square (minimal reference plugin)",
+              start, tick, nullptr);

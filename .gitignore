@@ -3,3 +3,4 @@
 .cursor
 .vscode
 archive
+include/secrets.h
