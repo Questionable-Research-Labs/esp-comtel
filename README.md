@@ -67,6 +67,21 @@ text → it scrolls on the sign.** Commands:
 Buttons: **BTN1** short = next message, long = pause/resume. **BTN2** short =
 cycle speed, long = test card.
 
+## Using it (the `fluid` plugin)
+
+Flash `fluid`. A landscape particle fluid runs on its own: blocks of red,
+green, and blue drop from the top at a random X, fall, and mix where they
+overlap (yellow, cyan, magenta, white). Auto-spawn would fill the sign in
+about a minute; once the panel is about half full the bottom row drains so
+the sim can keep going.
+
+| Button | GPIO | Effect |
+|---|---|---|
+| BTN1 | 32 | drop a red block |
+| BTN2 | 33 | drop a green block |
+| extra | 2 | drop a blue block |
+| extra 2 | 15 | drain the scene |
+
 ## Code layout
 
 | Path | Role |
@@ -74,6 +89,7 @@ cycle speed, long = test card.
 | `src/driver/comtel_panel.h/.cpp` | `ComtelPanel` — the hardware driver, compiled into **every** plugin: draw on its Adafruit-GFX canvas, call `show()`; `service()` keeps the display multiplexed |
 | `src/plugins/scrolling_text.cpp` | plugin: the full scrolling-message app (playlist, styles, buttons, NVS), with its renderer folded in |
 | `src/plugins/bouncer.cpp` | plugin: a bouncing 2×2 square — the minimal reference plugin |
+| `src/plugins/fluid.cpp` | plugin: landscape particle fluid — primary-colour drops, mixing, auto-drain |
 | `src/comtel_diag.cpp` | frozen reverse-engineering diagnostic firmware (env `diag`) |
 | `tools/flash.py` | the flasher: discover plugins, sync the env block, build + upload |
 | `docs/` | protocol spec, wiring, history |
