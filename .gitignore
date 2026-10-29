@@ -1,5 +1,6 @@
 .pio
 .claude
+.cursor
 .vscode
 archive
-openspec
+include/secrets.h

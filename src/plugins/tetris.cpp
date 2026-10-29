@@ -6,10 +6,10 @@
 // ============================================================================
 #include <Arduino.h>
 #include <esp_random.h>
-#include "../driver/comtel_panel.h"
+#include "../host/plugin.h"
 #include "../driver/button_pins.h"
 
-static ComtelPanel panel;
+namespace {
 
 // ---- board geometry (upright: 16 cols × 96 rows) --------------------------
 namespace tetris {
@@ -402,7 +402,8 @@ static tetris::Action sampleButtons(uint32_t nowMs, bool& softDropHeld) {
 }
 
 // ---- rendering (game gx,gy → canvas pixel gy,gx) ---------------------------
-static void renderFrame(const tetris::GameState& state, bool invertFlash) {
+static void renderFrame(ComtelPanel& panel, const tetris::GameState& state,
+                        bool invertFlash) {
   GFXcanvas8& c = panel.canvas;
   c.fillScreen(COMTEL_OFF);
 
@@ -456,20 +457,21 @@ static void printScoreIfChanged() {
   }
 }
 
-void setup() {
-  Serial.begin(115200);
-  panel.begin();
+// Every start is a new game: board, score, bag, top-out and flash state, and
+// input disarmed until all three buttons have been seen released.
+void start(ComtelPanel& panel) {
   configureButtonPins();
   initButtons(millis());
   tetris::init(gameState);
   lastPrintedScore = UINT32_MAX;
-  renderFrame(gameState, false);
+  wasToppedOut = false;
+  flashOn = false;
+  lastFlashMs = 0;
+  renderFrame(panel, gameState, false);
   printScoreIfChanged();
 }
 
-void loop() {
-  panel.service();
-
+void tick(ComtelPanel& panel) {
   const uint32_t now = millis();
   bool softDropHeld = false;
   const tetris::Action action = sampleButtons(now, softDropHeld);
@@ -494,7 +496,11 @@ void loop() {
   }
 
   if (needRedraw) {
-    renderFrame(gameState, gameState.toppedOut && flashOn);
+    renderFrame(panel, gameState, gameState.toppedOut && flashOn);
     printScoreIfChanged();
   }
 }
+
+}  // namespace
+
+COMTEL_PLUGIN(tetris, "Tetris", start, tick, nullptr);

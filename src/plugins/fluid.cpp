@@ -19,15 +19,15 @@
 //  GPIO 2 and 15 are strapping/boot pins. Momentary buttons idle high, so
 //  this is fine, but they must not be held low at reset.
 //
-//  Depends only on the shared driver headers.
+//  Depends only on the driver and the host plugin interface.
 // ============================================================================
 #include <Arduino.h>
 #include <esp_random.h>
 #include <string.h>
-#include "../driver/comtel_panel.h"
+#include "../host/plugin.h"
 #include "../driver/button_pins.h"
 
-static ComtelPanel panel;
+namespace {
 
 static const int W = ComtelPanel::W;          // 96
 static const int H = ComtelPanel::H;          // 16
@@ -124,7 +124,7 @@ static void stepFluid() {
   }
 }
 
-static void renderFrame() {
+static void renderFrame(ComtelPanel &panel) {
   GFXcanvas8& c = panel.canvas;
   c.fillScreen(COMTEL_OFF);
   for (int y = 0; y < H; ++y) {
@@ -201,20 +201,20 @@ static void pollButtons(uint32_t nowMs) {
   }
 }
 
-// ---- setup / loop ---------------------------------------------------------
-
-void setup() {
+void start(ComtelPanel &panel) {
+  memset(grid, 0, sizeof grid);
+  memset(moved, 0, sizeof moved);
+  sceneDraining = false;
   randomSeed(esp_random());
-  panel.begin();
   configureButtons(millis());
   lastStepMs = millis();
   lastSpawnMs = millis();
+  lastDrainMs = 0;
   spawnRandom();
-  renderFrame();
+  renderFrame(panel);
 }
 
-void loop() {
-  panel.service();
+void tick(ComtelPanel &panel) {
   const uint32_t now = millis();
   pollButtons(now);
   if (now - lastStepMs < STEP_MS) return;
@@ -238,5 +238,9 @@ void loop() {
       shiftDown();
     }
   }
-  renderFrame();
+  renderFrame(panel);
 }
+
+}  // namespace
+
+COMTEL_PLUGIN(fluid, "Fluid", start, tick, nullptr);

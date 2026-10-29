@@ -19,7 +19,11 @@
 //    !stop / !go       -> pause / resume scrolling
 //    !status, !help
 //  Playlist, slot, size, bold, italic and speed persist to NVS across reboots
-//  (!shift / clock calibration do not -- session-only defaults).
+//  and plugin switches (!shift / clock calibration do not -- the host resets
+//  the driver calibration on every switch).
+//
+//  Web settings (launcher page): message, slot, speed, size, bold, italic --
+//  each does exactly what its serial command does, including saving to NVS.
 //
 //  Buttons (to GND, internal pull-ups):
 //    BTN1 = GPIO32: short = next message, long = pause/resume
@@ -27,14 +31,16 @@
 // ============================================================================
 #include <Arduino.h>
 #include <Preferences.h>
-#include "../driver/comtel_panel.h"
+#include "../host/plugin.h"
 #include "../driver/button_pins.h"
 
+namespace {
+
 // ---- ScrollText renderer (file-local; folded in from the old scroll_text.*) -
-// Owns its message, scroll position and pacing; call tick() from loop().
+// Owns its message, scroll position and pacing; call tick() every pass.
 class ScrollText {
  public:
-  explicit ScrollText(ComtelPanel &p) : panel(p) {}
+  void attach(ComtelPanel &p) { panel = &p; }   // the host's panel, from start()
 
   void setMessage(const char *m);   // copies, appends a repeat gap, restarts
   const char *message() const { return msg; }
@@ -68,7 +74,7 @@ class ScrollText {
     return w;
   }
 
-  ComtelPanel &panel;
+  ComtelPanel *panel = nullptr;
   char msg[132] = "";
   int  x = ComtelPanel::W;
   uint32_t stepMsVal = 45, last = 0;
@@ -98,7 +104,7 @@ void ScrollText::tick() {
 // byte-wise copy; walk right-to-left so we don't overwrite pixels we still
 // need, and vacate the leftmost columns with COMTEL_OFF. Color is preserved.
 void ScrollText::shearItalic() {
-  uint8_t *buf = panel.canvas.getBuffer();
+  uint8_t *buf = panel->canvas.getBuffer();
   const int bpr = ComtelPanel::W;               // 96 bytes/row (1 byte/pixel)
   for (int y = 0; y < ComtelPanel::H; y++) {
     int s = (ComtelPanel::H - 1 - y) / 4;       // shift right 0..3 px
@@ -110,7 +116,7 @@ void ScrollText::shearItalic() {
 }
 
 void ScrollText::render() {
-  GFXcanvas8 &c = panel.canvas;
+  GFXcanvas8 &c = panel->canvas;
   c.fillScreen(COMTEL_OFF);
   c.setTextWrap(false);
   c.setTextColor(COMTEL_WHITE);     // monochrome white text on the RGB canvas
@@ -123,23 +129,24 @@ void ScrollText::render() {
     c.print(msg);
   }
   if (italic) shearItalic();
-  panel.show();
+  panel->show();
   if (--x < -textPixelWidth()) x = ComtelPanel::W;
 }
 
 // ---- app --------------------------------------------------------------------
-static ComtelPanel panel;
-static ScrollText scroller(panel);
+static ComtelPanel *hostPanel = nullptr;   // set by start()
+static ScrollText scroller;
 static Preferences prefs;           // NVS store, namespace "ledsign"
 
 // ---- message playlist -------------------------------------------------------
 static const int NMSG = 4;
-static char playlist[NMSG][128] = {
+static const char DEFAULT_PLAYLIST[NMSG][128] = {   // first-boot contents
     "QUESTIONABLE RESEARCH",
     "HELLO",
     "",
     "",
 };
+static char playlist[NMSG][128];
 static int msgIdx = 0;
 
 static const uint32_t speedPresets[] = {90, 45, 20};  // ms/step: slow/med/fast
@@ -192,6 +199,7 @@ static void saveSettings() {
 }
 
 static void loadSettings() {
+  memcpy(playlist, DEFAULT_PLAYLIST, sizeof(playlist));
   prefs.begin("ledsign", true);                   // read-only; missing = default
   char key[6];
   for (int i = 0; i < NMSG; i++) {
@@ -222,6 +230,7 @@ static void nextMessage() {
 }
 
 static void testCard() {
+  ComtelPanel &panel = *hostPanel;
   scroller.setRunning(false);
   panel.canvas.fillScreen(COMTEL_OFF);
   for (int m = 0; m < 6; m++)
@@ -231,6 +240,7 @@ static void testCard() {
 
 // row-mapping diagnostics: which canvas row feeds which glass row?
 static void stairCard() {                      // canvas row y -> cols 6y..6y+5
+  ComtelPanel &panel = *hostPanel;
   scroller.setRunning(false);
   panel.canvas.fillScreen(COMTEL_OFF);
   for (int y = 0; y < 16; y++)
@@ -240,6 +250,7 @@ static void stairCard() {                      // canvas row y -> cols 6y..6y+5
 }
 
 static void rowProbe(int y) {                  // light one full canvas row
+  ComtelPanel &panel = *hostPanel;
   scroller.setRunning(false);
   panel.canvas.fillScreen(COMTEL_OFF);
   panel.canvas.drawFastHLine(0, y, ComtelPanel::W, COMTEL_WHITE);
@@ -262,8 +273,21 @@ static void status() {
                 "rowShiftLo=%d clock=%lukHz\n",
                 msgIdx, scroller.message(), (unsigned long)scroller.stepMs(),
                 scroller.running(), scroller.size(), scroller.boldOn(),
-                scroller.italicOn(), panel.rowShiftLo,
-                (unsigned long)panel.clockKHz);
+                scroller.italicOn(), hostPanel->rowShiftLo,
+                (unsigned long)hostPanel->clockKHz);
+}
+
+// Set the current playlist slot's text and show it (a typed line, or the web
+// `message` setting). Leading spaces are dropped; a blank line is ignored.
+static bool setCurrentMessage(const char *l) {
+  while (*l == ' ') l++;
+  if (!*l) return false;
+  strncpy(playlist[msgIdx], l, sizeof(playlist[0]) - 1);
+  playlist[msgIdx][sizeof(playlist[0]) - 1] = 0;
+  showSlot(msgIdx);
+  saveSettings();
+  Serial.printf("slot %d set: \"%s\"\n", msgIdx, playlist[msgIdx]);
+  return true;
 }
 
 static void handleLine(char *l) {
@@ -271,7 +295,7 @@ static void handleLine(char *l) {
   if (!*l) return;
   if (*l == '!') {
     if (!strncmp(l, "!speed ", 7))      { scroller.setStepMs(constrain(atoi(l + 7), 5, 2000)); saveSettings(); status(); }
-    else if (!strncmp(l, "!shift ", 7)) { panel.rowShiftLo = atoi(l + 7) & 7; status(); }
+    else if (!strncmp(l, "!shift ", 7)) { hostPanel->rowShiftLo = atoi(l + 7) & 7; status(); }
     else if (!strncmp(l, "!slot ", 6))  { showSlot(atoi(l + 6)); saveSettings(); status(); }
     else if (!strncmp(l, "!size ", 6))  { scroller.setSize(atoi(l + 6)); saveSettings(); status(); }
     else if (!strcmp(l, "!bold"))       { scroller.setBold(!scroller.boldOn()); saveSettings(); status(); }
@@ -289,27 +313,33 @@ static void handleLine(char *l) {
     else if (!strcmp(l, "!status"))     { status(); }
     else help();
   } else {
-    strncpy(playlist[msgIdx], l, sizeof(playlist[0]) - 1);
-    playlist[msgIdx][sizeof(playlist[0]) - 1] = 0;
-    showSlot(msgIdx);
-    saveSettings();
-    Serial.printf("slot %d set: \"%s\"\n", msgIdx, playlist[msgIdx]);
+    setCurrentMessage(l);
   }
 }
 
-void setup() {
-  Serial.begin(115200);
-  panel.begin();
+// Serial line assembly, reset by start() so a half-typed line doesn't leak in.
+static char line[130];
+static int  len = 0;
+
+// Every start is the former boot, minus Serial.begin and the help text: the
+// playlist, slot, styles and speed come back from NVS (defaults on first boot),
+// scrolling resumes, and the button and line state start clean.
+void start(ComtelPanel &panel) {
+  hostPanel = &panel;
+  scroller = ScrollText();
+  scroller.attach(panel);
+  btn1 = Btn{BTN_PIN_1};
+  btn2 = Btn{BTN_PIN_2};
+  speedIdx = 1;
+  len = 0;
   pinMode(btn1.pin, INPUT_PULLUP);
   pinMode(btn2.pin, INPUT_PULLUP);
   loadSettings();                 // restore playlist/slot/styles/speed from NVS
   showSlot(msgIdx);               // primes + starts the scroll message
-  help();
   status();
 }
 
-void loop() {
-  panel.service();
+void tick(ComtelPanel &) {
   scroller.tick();
   switch (pollBtn(btn1)) {
     case 1: nextMessage(); saveSettings(); status(); break;
@@ -321,8 +351,6 @@ void loop() {
             scroller.setStepMs(speedPresets[speedIdx]); saveSettings(); status(); break;
     case 2: testCard(); break;
   }
-  static char line[130];
-  static int  len = 0;
   while (Serial.available()) {
     char ch = Serial.read();
     if (ch == '\r') continue;
@@ -331,3 +359,53 @@ void loop() {
     handleLine(line);
   }
 }
+
+// ---- web settings (host) ----------------------------------------------------
+// The host has already checked type and range; each set() does what the serial
+// command does -- apply, save to NVS, print status -- and re-checks its input.
+void getMessage(char *o, size_t n) { strlcpy(o, playlist[msgIdx], n); }
+bool setMessage(const char *v)     { return setCurrentMessage(v); }
+
+void getSlot(char *o, size_t n)    { snprintf(o, n, "%d", msgIdx); }
+bool setSlot(const char *v) {
+  int s = atoi(v);
+  if (s < 0 || s >= NMSG) return false;
+  showSlot(s); saveSettings(); status();
+  return true;
+}
+
+void getSpeed(char *o, size_t n)   { snprintf(o, n, "%lu", (unsigned long)scroller.stepMs()); }
+bool setSpeed(const char *v) {
+  long ms = atol(v);
+  if (ms < 5 || ms > 2000) return false;
+  scroller.setStepMs(ms); saveSettings(); status();
+  return true;
+}
+
+void getSize(char *o, size_t n)    { snprintf(o, n, "%d", scroller.size()); }
+bool setSize(const char *v) {
+  int sz = atoi(v);
+  if (sz != 1 && sz != 2) return false;
+  scroller.setSize(sz); saveSettings(); status();
+  return true;
+}
+
+void getBold(char *o, size_t n)    { strlcpy(o, scroller.boldOn() ? "1" : "0", n); }
+bool setBold(const char *v)        { scroller.setBold(atoi(v) != 0); saveSettings(); status(); return true; }
+
+void getItalic(char *o, size_t n)  { strlcpy(o, scroller.italicOn() ? "1" : "0", n); }
+bool setItalic(const char *v)      { scroller.setItalic(atoi(v) != 0); saveSettings(); status(); return true; }
+
+const PluginSetting SETTINGS[] = {
+  {"message", "Message",         SettingType::Text,   0, 127,  nullptr,   getMessage, setMessage},
+  {"slot",    "Slot",            SettingType::Choice, 0, 0,    "0|1|2|3", getSlot,    setSlot},
+  {"speed",   "Speed (ms/step)", SettingType::Int,    5, 2000, nullptr,   getSpeed,   setSpeed},
+  {"size",    "Size",            SettingType::Choice, 0, 0,    "1|2",     getSize,    setSize},
+  {"bold",    "Bold",            SettingType::Bool,   0, 0,    nullptr,   getBold,    setBold},
+  {"italic",  "Italic",          SettingType::Bool,   0, 0,    nullptr,   getItalic,  setItalic},
+};
+
+}  // namespace
+
+COMTEL_PLUGIN(scrolling_text, "Scrolling text with playlist, styles, buttons and NVS",
+              start, tick, nullptr, SETTINGS);
